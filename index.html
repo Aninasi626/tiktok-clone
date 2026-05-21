@@ -110,6 +110,7 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
     <div class="vp">
       <div v-for="(v,i) in show" :key="v.id"
         :class="['slide', pos(i), {dragging: drag}]"
+        :style="drag ? {transform: 'translateY(' + (basePct(i) + dragOff) + '%)'} : {}"
         @click.stop="tp(v)">
         <video :ref="'v_'+v.id" :src="v.src" loop playsinline
           webkit-playsinline x5-video-player-type="h5" x5-video-orientation="portrait"
@@ -262,6 +263,9 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
       a.push(this.list[this.idx]);
       if (this.idx < this.list.length-1) a.push(this.list[this.idx+1]);
       return a;
+    },
+    dragOff: function(){
+      return this.drag ? (-this.dragY / window.innerHeight) * 100 : 0;
     }
   },
 
@@ -274,6 +278,12 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
       if (this.idx === 0) return i === 0 ? 'p2' : 'p3';
       if (this.idx === this.list.length - 1) return i === L - 1 ? 'p2' : 'p1';
       return i === 0 ? 'p1' : i === 1 ? 'p2' : 'p3';
+    },
+    basePct: function(i){
+      var p = this.pos(i);
+      if (p === 'p1') return -100;
+      if (p === 'p3') return 100;
+      return 0;
     },
 
     // ── 手势（三事件：start / move / end） ──
@@ -303,6 +313,8 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
         this.go(this.idx + 1);
       } else if (dy < 0 && this.idx > 0) {
         this.go(this.idx - 1);
+      } else if (Math.abs(dy) >= threshold) {
+        this.toastMsg(dy > 0 ? '已经是最后一个了' : '已经是第一个了');
       }
     },
 
@@ -314,10 +326,21 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
       this.moving = true;
       this.idx = n;
       this.$nextTick(function(){
+        s.restartCanvases();
         s.preloadNearby();
         s.playV();
       });
       setTimeout(function(){ s.moving = false; }, 360);
+    },
+
+    restartCanvases: function(){
+      var s = this;
+      this.show.forEach(function(v){
+        if (!s._canvasRunning[v.id]) {
+          var fn = s._drawFns[v.id];
+          if (fn) fn();
+        }
+      });
     },
 
     // 预加载相邻视频
@@ -407,9 +430,7 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
       var v = this.cur; if (!v) return;
       v.liked = !v.liked;
       v.likes += v.liked ? 1 : -1;
-      this.toast = v.liked ? '已点赞' : '已取消';
-      var s = this;
-      setTimeout(function(){ s.toast = ''; }, 1000);
+      this.toastMsg(v.liked ? '已点赞' : '已取消');
     },
     heart: function(x, y){
       var s = this;
@@ -448,6 +469,11 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
       if (n >= 10000) return (n / 10000).toFixed(1) + 'w';
       if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
       return String(n);
+    },
+    toastMsg: function(msg){
+      this.toast = msg;
+      var s = this;
+      setTimeout(function(){ s.toast = ''; }, 1200);
     }
   },
 
@@ -468,6 +494,8 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
     this.$nextTick(function(){
 
       // ── Canvas 动画背景 ──
+      s._drawFns = {};
+      s._canvasRunning = {};
       s.list.forEach(function(v){
         var el = s.vel(v);
         var bg = el ? el.parentElement.querySelector('.bg') : null;
@@ -505,6 +533,8 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
         }
 
         function draw(){
+          if (s.show.indexOf(v) === -1) { s._canvasRunning[v.id] = false; return; }
+          s._canvasRunning[v.id] = true;
           resize();
           time += 0.008;
 
@@ -563,6 +593,7 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
 
           requestAnimationFrame(draw);
         }
+        s._drawFns[v.id] = draw;
         draw();
       });
 
@@ -582,6 +613,9 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;user-select:none;-we
             v.loading = false;
             el.style.display = 'block';
             if (bg) bg.style.display = 'none';
+          });
+          el.addEventListener('ended', function(){
+            v.progress = 0;
           });
           el.addEventListener('error', function(){
             v.loading = false;
